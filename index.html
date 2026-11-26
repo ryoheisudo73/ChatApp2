@@ -31,7 +31,16 @@
   const db = getDatabase(app);
 
   // ===== 定数 =====
-  const TOTAL_QUESTIONS = 10;
+  // 各問題で出題する難易度の範囲 [最小, 最大]（この範囲の問題からランダムに1問）
+  const ROUNDS = [
+    [1, 2],  // 第1問
+    [3, 4],  // 第2問
+    [5, 6],  // 第3問
+    [7, 9],  // 第4問
+    [10, 10] // 第5問
+  ];
+  const TOTAL_QUESTIONS = ROUNDS.length; // 5問
+  const MAX_DIFFICULTY = 10;
   const NEXT_WAIT_MS = 1500;    // 判定表示後、次の問題までのウェイト
   const ATTEMPT_SHOW_MS = 1500; // 回答直後にシュート画像を見せる時間
 
@@ -46,7 +55,7 @@
   // ===== 状態 =====
   let quizCache = null; // 難易度ごとの問題配列 { 1: [...], 2: [...], ... }
   let score = 0;
-  let current = 1;      // 現在の問題番号（= 難易度）
+  let current = 1;      // 現在の問題番号（1〜5）
 
   const chatEl = document.getElementById("chat");
   const controlsEl = document.getElementById("controls");
@@ -81,8 +90,9 @@
 
   // ===== 成績の保存（LocalStorage） =====
   // 保存するのは正解数のみ。高校レベルは表示時に getRank() で求める
-  const STORAGE_LAST = "slamdunk_last_score";
-  const STORAGE_BEST = "slamdunk_best_score";
+  // 10問版の記録と混ざらないよう、5問版は別のキーで保存する
+  const STORAGE_LAST = "slamdunk5_last_score";
+  const STORAGE_BEST = "slamdunk5_best_score";
 
   function loadScore(key) {
     const v = localStorage.getItem(key);
@@ -151,11 +161,11 @@
     toArray(snapshot.val()).forEach((q) => {
       const d = Number(q.difficulty);
       const choices = toArray(q.choices).map(String);
-      if (!(d >= 1 && d <= TOTAL_QUESTIONS) || !q.question || choices.length === 0) return;
-      (byDifficulty[d] ||= []).push({ question: q.question, choices, answer: String(q.answer) });
+      if (!(d >= 1 && d <= MAX_DIFFICULTY) || !q.question || choices.length === 0) return;
+      (byDifficulty[d] ||= []).push({ difficulty: d, question: q.question, choices, answer: String(q.answer) });
     });
 
-    for (let d = 1; d <= TOTAL_QUESTIONS; d++) {
+    for (let d = 1; d <= MAX_DIFFICULTY; d++) {
       if (!byDifficulty[d]?.length) throw new Error(`難易度${d}の問題がありません`);
     }
     quizCache = byDifficulty;
@@ -188,10 +198,13 @@
   }
 
   function askQuestion() {
-    const pool = quizCache[current];
+    // この問題の難易度範囲に入る問題をすべて集め、その中からランダムに1問選ぶ
+    const [min, max] = ROUNDS[current - 1];
+    const pool = [];
+    for (let d = min; d <= max; d++) pool.push(...quizCache[d]);
     const q = pool[Math.floor(Math.random() * pool.length)];
 
-    addMessage(`第${current}問（難易度${current}）：${q.question}`);
+    addMessage(`第${current}問（難易度${q.difficulty}）：${q.question}`);
     showButtons(q.choices, async (choice) => {
       // 回答した瞬間：シュート中の画像を1.5秒表示
       const shot = addImage(SHOT_IMG.attempt, "シュート！");
@@ -222,13 +235,8 @@
 
   // ===== 状態3：結果発表・リトライ確認 =====
   function getRank(n) {
-    if (n >= 10) return "湘北";
-    if (n === 9) return "山王";
-    if (n === 8) return "海南大附属";
-    if (n === 7) return "陵南";
-    if (n >= 5) return "翔陽";
-    if (n >= 3) return "津久武";
-    return "三浦台"; // 0〜2問
+    const ranks = ["三浦台", "津久武", "翔陽", "海南", "山王", "湘北"]; // 0問〜5問正解
+    return ranks[Math.min(Math.max(n, 0), ranks.length - 1)];
   }
 
   function showResult() {
