@@ -2,115 +2,262 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>Firebase:v9:Chatアプリ</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>スラムダンク検定</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    background: #e9ecef;
+    color: #222;
+  }
+  .app {
+    max-width: 600px;
+    height: 100%;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    background: #f7f7f7;
+    box-shadow: 0 0 12px rgba(0, 0, 0, 0.1);
+  }
+
+  /* ヘッダー */
+  .header {
+    flex: none;
+    padding: 14px 16px;
+    background: #c8102e;
+    color: #fff;
+    font-size: 1.2rem;
+    font-weight: bold;
+    text-align: center;
+    letter-spacing: 0.1em;
+  }
+
+  /* チャット表示エリア */
+  .chat {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .msg {
+    max-width: 80%;
+    padding: 10px 14px;
+    border-radius: 16px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    animation: pop 0.2s ease-out;
+  }
+  .msg.bot {
+    align-self: flex-start;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-bottom-left-radius: 4px;
+  }
+  .msg.user {
+    align-self: flex-end;
+    background: #c8102e;
+    color: #fff;
+    border-bottom-right-radius: 4px;
+  }
+  .msg.correct { border-color: #2e9e4f; color: #1f7a3a; font-weight: bold; }
+  .msg.wrong   { border-color: #d9822b; color: #a35a10; font-weight: bold; }
+  @keyframes pop {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ユーザー操作エリア */
+  .controls {
+    flex: none;
+    padding: 12px;
+    background: #fff;
+    border-top: 1px solid #ddd;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    min-height: 64px;
+  }
+  .controls button {
+    padding: 12px 8px;
+    font-size: 1rem;
+    border: 2px solid #c8102e;
+    border-radius: 999px;
+    background: #fff;
+    color: #c8102e;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .controls button:hover:not(:disabled) { background: #c8102e; color: #fff; }
+  .controls button:disabled { opacity: 0.4; cursor: default; }
+
+  @media (max-width: 420px) {
+    .controls { grid-template-columns: 1fr; }
+    .msg { max-width: 90%; }
+  }
+</style>
 </head>
 <body>
 
-<!-- コンテンツ表示画面 -->
-
-<div>
-    <div> 名前：<input type="text" id="uname"> </div>
-    <div>
-        <textarea id="text" cols="30" rows="10"></textarea>
-        <button id="send">送信</button>
-    </div>
-    <div id="output" style="overflow: auto; height: 300px;"></div>
+<div class="app">
+  <header class="header">スラムダンク検定</header>
+  <main id="chat" class="chat"></main>
+  <div id="controls" class="controls"></div>
 </div>
-<!--/ コンテンツ表示画面 -->
 
-
-
-<!-- JQuery -->
-<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
-<!-- JQuery -->
-
-
-<!--** 以下Firebase **-->
 <script type="module">
-  // Import the functions you need from the SDKs you need
   import { initializeApp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
-  import { getDatabase, ref, push, set, onChildAdded, remove, onChildRemoved } 
-  from "https://www.gstatic.com/firebasejs/13.4.0/firebase-database.js";
-
-  // TODO: Add SDKs for Firebase products that you want to use
-  // https://firebase.google.com/docs/web/setup#available-libraries
-
-  // Your web app's Firebase configuration（config.js から読み込み。config.js は .gitignore 済み）
+  import { getDatabase, ref, get } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-database.js";
+  // Firebase設定（config.js は .gitignore 済み）
   import { firebaseConfig } from "./config.js";
 
-  // Initialize Firebase
-  const app = initializeApp(firebaseConfig); //認証
-  const db = getDatabase(app); //RealtimeDatabaseに接続　dbはアクセス状態を持っている
-  const dbRef = ref(db, "chat"); //RealtimeDatabaseのchatにアクセスするための参照を取得
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
 
-  // 1.送信ボタンが押されたときの処理
-  $("#send").on("click", function() {
-    const msg ={
-        uname: $("#uname").val(),
-        text: $("#text").val(),
-        datetime: new Date().toLocaleString('ja-JP')
+  // ===== 定数 =====
+  const TOTAL_QUESTIONS = 10;
+  const NEXT_WAIT_MS = 900; // 判定表示後、次の問題までのウェイト
+
+  // ===== 状態 =====
+  let quizCache = null; // 難易度ごとの問題配列 { 1: [...], 2: [...], ... }
+  let score = 0;
+  let current = 1;      // 現在の問題番号（= 難易度）
+
+  const chatEl = document.getElementById("chat");
+  const controlsEl = document.getElementById("controls");
+
+  // ===== UIヘルパー =====
+  function addMessage(text, who = "bot", extraClass = "") {
+    const div = document.createElement("div");
+    div.className = `msg ${who} ${extraClass}`.trim();
+    div.textContent = text;
+    chatEl.appendChild(div);
+    chatEl.scrollTop = chatEl.scrollHeight; // 自動で最下部へスクロール
+  }
+
+  // ボタンを表示。押されたらユーザー吹き出しを出し、全ボタンを非活性にしてから onSelect を呼ぶ
+  function showButtons(labels, onSelect) {
+    controlsEl.innerHTML = "";
+    labels.forEach((label) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = label;
+      btn.addEventListener("click", () => {
+        controlsEl.querySelectorAll("button").forEach((b) => (b.disabled = true)); // 二重送信防止
+        addMessage(label, "user");
+        onSelect(label);
+      });
+      controlsEl.appendChild(btn);
+    });
+  }
+
+  function clearButtons() {
+    controlsEl.innerHTML = "";
+  }
+
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // ===== データ取得（初回のみ一括取得してメモリにキャッシュ） =====
+  // RealtimeDatabase の配列はオブジェクトで返ることがあるため、どちらでも扱えるようにする
+  const toArray = (v) => (Array.isArray(v) ? v : Object.values(v || {})).filter((x) => x != null);
+
+  async function loadQuizzes() {
+    if (quizCache) return quizCache;
+    const snapshot = await get(ref(db, "quizzes"));
+    if (!snapshot.exists()) throw new Error("quizzes にデータがありません");
+
+    const byDifficulty = {};
+    toArray(snapshot.val()).forEach((q) => {
+      const d = Number(q.difficulty);
+      const choices = toArray(q.choices).map(String);
+      if (!(d >= 1 && d <= TOTAL_QUESTIONS) || !q.question || choices.length === 0) return;
+      (byDifficulty[d] ||= []).push({ question: q.question, choices, answer: String(q.answer) });
+    });
+
+    for (let d = 1; d <= TOTAL_QUESTIONS; d++) {
+      if (!byDifficulty[d]?.length) throw new Error(`難易度${d}の問題がありません`);
     }
-    const newPostRef = push(dbRef); //chatの下に新しいデータを追加するための参照を取得
-    set(newPostRef, msg); //ユニークキーを自動で生成し、新しいデータをFirebaseに追加
-  });
+    quizCache = byDifficulty;
+    return quizCache;
+  }
 
-  // 2.データベースにデータが追加されたときの処理
-  onChildAdded(dbRef, function(data) {
-    const msg = data.val(); //受信データをオブジェクト変数として代入
-    const key = data.key; //ユニークキーを取得
-    let h = '<p>';
-        h += msg.uname;
-        h += '[';
-        h += msg.datetime;
-        h += ']';
-        h += '<br>';
-        h += msg.text;
-        h += '</p>';
-    $("#output").append(h);
-  });
+  // ===== 状態1：開始確認 =====
+  function askStart() {
+    addMessage("スラムダンク検定、やりますか？");
+    showButtons(["はい", "いいえ"], (ans) => {
+      if (ans === "はい") startQuiz();
+      else askStart(); // 「はい」以外 → 初期状態を維持
+    });
+  }
+
+  // ===== 状態2：クイズ進行 =====
+  async function startQuiz() {
+    score = 0;
+    current = 1;
+    try {
+      if (!quizCache) addMessage("問題を読み込んでいます…");
+      await loadQuizzes();
+    } catch (err) {
+      console.error(err);
+      addMessage(`問題の読み込みに失敗しました。（${err.message}）`);
+      askStart();
+      return;
+    }
+    askQuestion();
+  }
+
+  function askQuestion() {
+    const pool = quizCache[current];
+    const q = pool[Math.floor(Math.random() * pool.length)];
+
+    addMessage(`第${current}問（難易度${current}）：${q.question}`);
+    showButtons(q.choices, async (choice) => {
+      if (choice === q.answer) {
+        score++;
+        addMessage("正解！", "bot", "correct");
+      } else {
+        addMessage(`不正解…（正解：${q.answer}）`, "bot", "wrong");
+      }
+
+      await wait(NEXT_WAIT_MS);
+
+      if (current < TOTAL_QUESTIONS) {
+        current++;
+        askQuestion();
+      } else {
+        showResult();
+      }
+    });
+  }
+
+  // ===== 状態3：結果発表・リトライ確認 =====
+  function getRank(n) {
+    if (n >= 10) return "湘北";
+    if (n === 9) return "山王";
+    if (n === 8) return "海南大附属";
+    if (n === 7) return "陵南";
+    if (n >= 5) return "翔陽";
+    if (n >= 3) return "津久武";
+    return "三浦台"; // 0〜2問
+  }
+
+  function showResult() {
+    clearButtons();
+    addMessage(`${TOTAL_QUESTIONS}問中 ${score}問正解しました！ あなたは『${getRank(score)}』レベルです。`);
+    addMessage("リトライしますか？");
+    showButtons(["はい", "いいえ"], (ans) => {
+      if (ans === "はい") startQuiz();
+      else askStart(); // 「はい」以外 → 初期状態へ
+    });
+  }
+
+  // ===== 起動 =====
+  askStart();
 </script>
-
-
-
-
-
-
-
-
-
-
 
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
