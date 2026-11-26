@@ -61,8 +61,22 @@
     flex-direction: column;
     gap: 10px;
   }
+  /* 1件分の行（アイコン＋吹き出し） */
+  .row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    max-width: 85%;
+  }
+  .row.bot  { align-self: flex-start; }
+  .row.user { align-self: flex-end; flex-direction: row-reverse; } /* アイコンを右側に */
+  .row .icon {
+    flex: none;
+    height: 50px;
+    object-fit: contain;
+  }
   .msg {
-    max-width: 80%;
+    min-width: 0;
     padding: 10px 14px;
     border-radius: 16px;
     line-height: 1.5;
@@ -71,13 +85,11 @@
     animation: pop 0.2s ease-out;
   }
   .msg.bot {
-    align-self: flex-start;
     background: #fff;
     border: 1px solid #ddd;
     border-bottom-left-radius: 4px;
   }
   .msg.user {
-    align-self: flex-end;
     background: #c8102e;
     color: #fff;
     border-bottom-right-radius: 4px;
@@ -138,7 +150,8 @@
 
   @media (max-width: 420px) {
     .controls { grid-template-columns: 1fr; }
-    .msg { max-width: 90%; }
+    .row { max-width: 95%; }
+    .row .icon { height: 40px; }
   }
 </style>
 </head>
@@ -184,18 +197,32 @@
   const chatEl = document.getElementById("chat");
   const controlsEl = document.getElementById("controls");
 
+  // アイコン処理（firebase_add.pdf の方式）
+  // 0: Bot（左）、1: ユーザー（右）
+  const img = ["basketring2.png", "basketball_2.png"];
+  const ICON = { bot: 0, user: 1 };
+
+  // アイコン＋吹き出しの1行を作ってチャットに追加し、吹き出し要素を返す
+  function addRow(who, bubbleClass) {
+    const icon = ICON[who];
+    let str = '<div class="row ' + who + '">';
+    str += '<img class="icon" src="imgs/' + img[icon] + '" width="50">';
+    str += '<div class="' + bubbleClass + '"></div>';
+    str += '</div>';
+    chatEl.insertAdjacentHTML("beforeend", str);
+    chatEl.scrollTop = chatEl.scrollHeight; // 自動で最下部へスクロール
+    return chatEl.lastElementChild.querySelector(".msg");
+  }
+
   // Botの画像メッセージを追加し、<img> 要素を返す（あとで src を差し替えられる）
   function addImage(src, alt) {
-    const div = document.createElement("div");
-    div.className = "msg bot shot";
-    const img = document.createElement("img");
-    img.src = src;
-    img.alt = alt;
-    img.addEventListener("load", () => { chatEl.scrollTop = chatEl.scrollHeight; });
-    div.appendChild(img);
-    chatEl.appendChild(div);
-    chatEl.scrollTop = chatEl.scrollHeight;
-    return img;
+    const bubble = addRow("bot", "msg bot shot");
+    const shot = document.createElement("img");
+    shot.src = src;
+    shot.alt = alt;
+    shot.addEventListener("load", () => { chatEl.scrollTop = chatEl.scrollHeight; });
+    bubble.appendChild(shot);
+    return shot;
   }
 
   // ===== 成績の保存（LocalStorage） =====
@@ -230,11 +257,9 @@
 
   // ===== UIヘルパー =====
   function addMessage(text, who = "bot", extraClass = "") {
-    const div = document.createElement("div");
-    div.className = `msg ${who} ${extraClass}`.trim();
-    div.textContent = text;
-    chatEl.appendChild(div);
-    chatEl.scrollTop = chatEl.scrollHeight; // 自動で最下部へスクロール
+    const bubble = addRow(who, `msg ${who} ${extraClass}`.trim());
+    bubble.textContent = text; // 文字はタグとして解釈させないため textContent で入れる
+    chatEl.scrollTop = chatEl.scrollHeight;
   }
 
   // ボタンを表示。押されたらユーザー吹き出しを出し、全ボタンを非活性にしてから onSelect を呼ぶ
