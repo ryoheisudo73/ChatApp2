@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>スラムダンク検定</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Mochiy+Pop+One&display=swap&text=正解！" rel="stylesheet">
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
@@ -33,6 +36,21 @@
     text-align: center;
     letter-spacing: 0.1em;
   }
+
+  /* 成績バー（前回・最高） */
+  .stats {
+    flex: none;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    background: #fff;
+    border-bottom: 1px solid #ddd;
+    font-size: 0.85rem;
+    text-align: center;
+  }
+  .stats > div { padding: 8px 4px; }
+  .stats > div + div { border-left: 1px solid #ddd; }
+  .stats .label { display: block; color: #888; font-size: 0.75rem; }
+  .stats .value { font-weight: bold; }
 
   /* チャット表示エリア */
   .chat {
@@ -64,8 +82,31 @@
     color: #fff;
     border-bottom-right-radius: 4px;
   }
-  .msg.correct { border-color: #2e9e4f; color: #1f7a3a; font-weight: bold; }
-  .msg.wrong   { border-color: #d9822b; color: #a35a10; font-weight: bold; }
+  /* 正解：楽しげなフォント＋はずむアニメーション */
+  .msg.correct {
+    font-family: "Mochiy Pop One", "Hiragino Maru Gothic ProN", sans-serif;
+    font-size: 1.8rem;
+    line-height: 1.2;
+    padding: 8px 18px;
+    border: 3px solid #ffb400;
+    background: #fff8e1;
+    color: #ff5a1f;
+    letter-spacing: 0.08em;
+    text-shadow: 2px 2px 0 #ffd54f;
+    animation: bounce 0.6s cubic-bezier(0.28, 1.6, 0.5, 1);
+  }
+  /* 不正解：普通のフォント */
+  .msg.wrong { font-weight: normal; }
+
+  /* シュート画像 */
+  .msg.shot { padding: 6px; line-height: 0; }
+  .msg.shot img { display: block; height: 180px; width: auto; max-width: 100%; border-radius: 10px; }
+
+  @keyframes bounce {
+    0%   { opacity: 0; transform: scale(0.3) rotate(-8deg); }
+    60%  { opacity: 1; transform: scale(1.15) rotate(4deg); }
+    100% { transform: scale(1) rotate(0); }
+  }
   @keyframes pop {
     from { opacity: 0; transform: translateY(6px); }
     to   { opacity: 1; transform: translateY(0); }
@@ -105,6 +146,10 @@
 
 <div class="app">
   <header class="header">スラムダンク検定</header>
+  <div class="stats">
+    <div><span class="label">前回の結果</span><span id="last-score" class="value">－</span></div>
+    <div><span class="label">最高得点</span><span id="best-score" class="value">－</span></div>
+  </div>
   <main id="chat" class="chat"></main>
   <div id="controls" class="controls"></div>
 </div>
@@ -120,7 +165,16 @@
 
   // ===== 定数 =====
   const TOTAL_QUESTIONS = 10;
-  const NEXT_WAIT_MS = 900; // 判定表示後、次の問題までのウェイト
+  const NEXT_WAIT_MS = 1500;    // 判定表示後、次の問題までのウェイト
+  const ATTEMPT_SHOW_MS = 1500; // 回答直後にシュート画像を見せる時間
+
+  const SHOT_IMG = {
+    attempt: "imgs/shot_attempt.jpeg",
+    made: "imgs/shot_made.jpeg",
+    missed: "imgs/shot_missed.jpg",
+  };
+  // 表示時に読み込み待ちが出ないよう、先に読み込んでおく
+  Object.values(SHOT_IMG).forEach((src) => { new Image().src = src; });
 
   // ===== 状態 =====
   let quizCache = null; // 難易度ごとの問題配列 { 1: [...], 2: [...], ... }
@@ -129,6 +183,50 @@
 
   const chatEl = document.getElementById("chat");
   const controlsEl = document.getElementById("controls");
+
+  // Botの画像メッセージを追加し、<img> 要素を返す（あとで src を差し替えられる）
+  function addImage(src, alt) {
+    const div = document.createElement("div");
+    div.className = "msg bot shot";
+    const img = document.createElement("img");
+    img.src = src;
+    img.alt = alt;
+    img.addEventListener("load", () => { chatEl.scrollTop = chatEl.scrollHeight; });
+    div.appendChild(img);
+    chatEl.appendChild(div);
+    chatEl.scrollTop = chatEl.scrollHeight;
+    return img;
+  }
+
+  // ===== 成績の保存（LocalStorage） =====
+  // 保存するのは正解数のみ。高校レベルは表示時に getRank() で求める
+  const STORAGE_LAST = "slamdunk_last_score";
+  const STORAGE_BEST = "slamdunk_best_score";
+
+  function loadScore(key) {
+    const v = localStorage.getItem(key);
+    if (v === null) return null;
+    const n = Number(v);
+    return Number.isInteger(n) && n >= 0 && n <= TOTAL_QUESTIONS ? n : null;
+  }
+
+  const formatScore = (n) =>
+    n === null ? "－" : `${TOTAL_QUESTIONS}問中 ${n}問正解（${getRank(n)}）`;
+
+  function renderStats() {
+    document.getElementById("last-score").textContent = formatScore(loadScore(STORAGE_LAST));
+    document.getElementById("best-score").textContent = formatScore(loadScore(STORAGE_BEST));
+  }
+
+  // 今回の結果を保存し、最高得点を更新したら true を返す
+  function saveScore(n) {
+    localStorage.setItem(STORAGE_LAST, String(n));
+    const best = loadScore(STORAGE_BEST);
+    const isNewBest = best === null || n > best;
+    if (isNewBest) localStorage.setItem(STORAGE_BEST, String(n));
+    renderStats();
+    return isNewBest;
+  }
 
   // ===== UIヘルパー =====
   function addMessage(text, who = "bot", extraClass = "") {
@@ -216,10 +314,19 @@
 
     addMessage(`第${current}問（難易度${current}）：${q.question}`);
     showButtons(q.choices, async (choice) => {
+      // 回答した瞬間：シュート中の画像を1.5秒表示
+      const shot = addImage(SHOT_IMG.attempt, "シュート！");
+      await wait(ATTEMPT_SHOW_MS);
+
+      // 同じ吹き出しの画像を、成功／失敗の画像に差し替える
       if (choice === q.answer) {
         score++;
+        shot.src = SHOT_IMG.made;
+        shot.alt = "シュート成功";
         addMessage("正解！", "bot", "correct");
       } else {
+        shot.src = SHOT_IMG.missed;
+        shot.alt = "シュート失敗";
         addMessage(`不正解…（正解：${q.answer}）`, "bot", "wrong");
       }
 
@@ -247,7 +354,11 @@
 
   function showResult() {
     clearButtons();
+    const prevBest = loadScore(STORAGE_BEST);
     addMessage(`${TOTAL_QUESTIONS}問中 ${score}問正解しました！ あなたは『${getRank(score)}』レベルです。`);
+    if (saveScore(score) && prevBest !== null) {
+      addMessage(`最高得点を更新しました！（${prevBest}問 → ${score}問）`, "bot", "correct");
+    }
     addMessage("リトライしますか？");
     showButtons(["はい", "いいえ"], (ans) => {
       if (ans === "はい") startQuiz();
@@ -256,6 +367,7 @@
   }
 
   // ===== 起動 =====
+  renderStats();
   askStart();
 </script>
 
