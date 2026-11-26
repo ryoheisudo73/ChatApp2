@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Firebase:v9:Chatアプリ</title>
+</head>
+<body>
+
+<!-- コンテンツ表示画面 -->
+
+<div>
+    <div> 名前：<input type="text" id="uname"> </div>
+    <div>
+        <textarea id="text" cols="30" rows="10"></textarea>
+        <button id="send">送信</button>
+    </div>
+    <div id="output" style="overflow: auto; height: 300px;"></div>
+</div>
+<!--/ コンテンツ表示画面 -->
+
+
+
+<!-- JQuery -->
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+<!-- JQuery -->
+
+
+<!--** 以下Firebase **-->
+<script type="module">
+  // Import the functions you need from the SDKs you need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
+  import { getDatabase, ref, push, set, onChildAdded, remove, onChildRemoved } 
+  from "https://www.gstatic.com/firebasejs/13.4.0/firebase-database.js";
+
+  // TODO: Add SDKs for Firebase products that you want to use
+  // https://firebase.google.com/docs/web/setup#available-libraries
+
+  // Your web app's Firebase configuration（config.js から読み込み。config.js は .gitignore 済み）
+  import { firebaseConfig } from "./config.js";
+
+  // Initialize Firebase
+  const app = initializeApp(firebaseConfig); //認証
+  const db = getDatabase(app); //RealtimeDatabaseに接続　dbはアクセス状態を持っている
+  const dbRef = ref(db, "chat"); //RealtimeDatabaseのchatにアクセスするための参照を取得
+
+  // 1.送信ボタンが押されたときの処理
+  $("#send").on("click", function() {
+    const msg ={
+        uname: $("#uname").val(),
+        text: $("#text").val(),
+        datetime: new Date().toLocaleString('ja-JP')
+    }
+    const newPostRef = push(dbRef); //chatの下に新しいデータを追加するための参照を取得
+    set(newPostRef, msg); //ユニークキーを自動で生成し、新しいデータをFirebaseに追加
+  });
+
+  // 2.データベースにデータが追加されたときの処理
+  onChildAdded(dbRef, function(data) {
+    const msg = data.val(); //受信データをオブジェクト変数として代入
+    const key = data.key; //ユニークキーを取得
+    let h = '<p>';
+        h += msg.uname;
+        h += '[';
+        h += msg.datetime;
+        h += ']';
+        h += '<br>';
+        h += msg.text;
+        h += '</p>';
+    $("#output").append(h);
+  });
+</script>
+
+
+
+
+
+
+
+
+
+
+
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
