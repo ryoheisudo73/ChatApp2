@@ -6,7 +6,7 @@
 - スラムダンクに関するクイズに答えて点数を記録する
 
 ## ③アプリのデプロイURL
-デプロイしている場合はURLを記入（任意）
+[https://ryoheisudo73.github.io/ChatApp2/]
 
 ## ④アプリのログイン用IDまたはPassword（ある場合）
 - ID: 今回はなし
