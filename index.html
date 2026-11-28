@@ -174,10 +174,10 @@
 
   // ===== 状態1：開始確認 =====
   function askStart() {
-    addMessage("スラムダンク検定、やりますか？");
-    showButtons(["はい", "いいえ"], (ans) => {
-      if (ans === "はい") startQuiz();
-      else askStart(); // 「はい」以外 → 初期状態を維持
+    addMessage("バスケットは、お好きですか？");
+    showButtons(["大好きです", "どあほう"], (ans) => {
+      if (ans === "大好きです") startQuiz();
+      else askStart(); // 「大好きです」以外 → 初期状態を維持
     });
   }
 
